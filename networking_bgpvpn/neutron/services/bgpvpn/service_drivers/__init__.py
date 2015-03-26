@@ -25,6 +25,7 @@ class BGPVPNDriver(object):
 
     @property
     def service_type(self):
+        #FIXME: what is this used for ?
         pass
 
     @abc.abstractmethod
