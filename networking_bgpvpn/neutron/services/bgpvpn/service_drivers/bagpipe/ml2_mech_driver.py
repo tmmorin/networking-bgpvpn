@@ -44,8 +44,8 @@ class ML2BGPVPNMechanismDriver(api.MechanismDriver):
             constants.BGPVPN)
 
         if bgpvpnplugin:
-            bgpvpnplugin.prevent_bgpvpn_network_deletion(self.db_context,
-                                                         network['id'])
+            bgpvpnplugin.driver.prevent_bgpvpn_network_deletion(
+                self.db_context, network['id'])
 
     def update_port_postcommit(self, context):
         port = context.current
@@ -54,7 +54,7 @@ class ML2BGPVPNMechanismDriver(api.MechanismDriver):
             constants.BGPVPN)
 
         if bgpvpnplugin:
-            bgpvpnplugin.notify_port_updated(self.db_context, port)
+            bgpvpnplugin.driver.notify_port_updated(self.db_context, port)
 
     def delete_port_postcommit(self, context):
         port = context.current
@@ -63,4 +63,5 @@ class ML2BGPVPNMechanismDriver(api.MechanismDriver):
             constants.BGPVPN)
 
         if bgpvpnplugin:
-            bgpvpnplugin.remove_port_from_bgpvpn_agent(self.db_context, port)
+            bgpvpnplugin.driver.remove_port_from_bgpvpn_agent(self.db_context,
+                                                              port)

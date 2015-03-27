@@ -331,3 +331,17 @@ class BaGPipeBGPVPNDriver(service_drivers.BGPVPNDriver,
         self.agent_rpc.detach_port_from_bgpvpn_network(context,
                                                        port_bgpvpn_info,
                                                        agent_host)
+
+    def prevent_bgpvpn_network_deletion(self, context, network_id):
+        '''
+        Method called by the mech_driver at delete_network_precommit time
+        to prevent deletion of a network referred to by a BGPVPN connection.
+        '''
+        LOG.debug('Prevent BGP VPN network deletion')
+        if (self.service_plugin.get_bgpvpn_connections(
+                context,
+                filters={'network_id': [network_id]})):
+            raise bgpvpn_db.BGPVPNNetworkInUse(network_id=network_id)
+        else:
+            LOG.debug('Network %(network_id)s can be deleted')
+
