@@ -15,10 +15,6 @@
 
 from oslo_log import log
 
-from neutron import context as n_context
-from neutron import manager
-
-from networking_bgpvpn.neutron.services.common import constants
 from neutron.plugins.ml2 import driver_api as api
 
 LOG = log.getLogger(__name__)
@@ -32,33 +28,5 @@ class ML2BGPVPNMechanismDriver(api.MechanismDriver):
     """
 
     def initialize(self):
-        self.db_context = n_context.get_admin_context()
-
-    def delete_network_precommit(self, context):
-        network = context.current
-
-        bgpvpnplugin = manager.NeutronManager.get_service_plugins().get(
-            constants.BGPVPN)
-
-        if bgpvpnplugin:
-            bgpvpnplugin.driver.prevent_bgpvpn_network_deletion(
-                self.db_context, network['id'])
-
-    def update_port_postcommit(self, context):
-        port = context.current
-
-        bgpvpnplugin = manager.NeutronManager.get_service_plugins().get(
-            constants.BGPVPN)
-
-        if bgpvpnplugin:
-            bgpvpnplugin.driver.notify_port_updated(self.db_context, port)
-
-    def delete_port_postcommit(self, context):
-        port = context.current
-
-        bgpvpnplugin = manager.NeutronManager.get_service_plugins().get(
-            constants.BGPVPN)
-
-        if bgpvpnplugin:
-            bgpvpnplugin.driver.remove_port_from_bgpvpn_agent(self.db_context,
-                                                              port)
+        LOG.warning("The bgpvpn_notify mechanism is now unneeded and "
+                    "can be safely removed from your config")
