@@ -165,9 +165,16 @@ class BGPVPNPluginDb(common_db_mixin.CommonDbMixin):
                 return self._get_resource(context, BGPVPNConnection, id)
             else:
                 qry = context.session.query(BGPVPNConnection)
+                LOG.warning("_get_bgpvpn_connection: all cnx: %s",
+                            qry.filter_by(id=id,
+                                          tenant_id=context.tenant_id).all())
                 return qry.filter_by(id=id, tenant_id=context.tenant_id).one()
         except exc.NoResultFound:
             raise BGPVPNConnectionNotFound(conn_id=id)
+
+#     def _get_network(self, context, id):
+#         try:
+#             network = self._get_by_id(context, models_v2.Network, id)
 
     def get_bgpvpn_connection(self, context, id, fields=None):
         bgpvpn_connection_db = self._get_bgpvpn_connection(context, id)
