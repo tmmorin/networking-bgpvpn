@@ -237,35 +237,59 @@ class TestBagpipeServiceDriver(TestBagpipeCommon):
                 self.subnet(network=net) as subnet, \
                 self.router(tenant_id=self._tenant_id) as router, \
                 self.bgpvpn() as bgpvpn:
-            self._router_interface_action('add',
-                                          router['router']['id'],
-                                          subnet['subnet']['id'],
-                                          None)
+            itf = self._router_interface_action('add',
+                                                router['router']['id'],
+                                                subnet['subnet']['id'],
+                                                None)
             with self.assoc_router(bgpvpn['bgpvpn']['id'],
                                    router['router']['id']), \
                     self.port(subnet=subnet) as port:
-                context = n_context.Context(user_id='fake_user',
-                                            tenant_id=self._tenant_id)
                 mac_address = port['port']['mac_address']
                 formatted_ip = (port['port']['fixed_ips'][0]['ip_address'] +
                                 '/' + subnet['subnet']['cidr'].split('/')[-1])
+                itf_port = self.plugin.get_port(self.ctxt, itf['port_id'])
+
                 expected = {
                     'gateway_ip': subnet['subnet']['gateway_ip'],
                     'mac_address': mac_address,
-                    'ip_address': formatted_ip
+                    'ip_address': formatted_ip,
+                    'gateway_mac': itf_port['mac_address']
                 }
                 expected.update(driver._format_bgpvpn_network_route_targets(
                     [bgpvpn['bgpvpn']]))
 
                 actual = driver._retrieve_bgpvpn_network_info_for_port(
-                    context, port['port'])
+                    self.ctxt, port['port'])
 
                 self.assertEqual(expected, actual)
+
+    def test_bagpipe_get_network_info_for_port(self):
+        with self.network() as net, \
+                self.subnet(network=net) as subnet, \
+                self.router(tenant_id=self._tenant_id) as router, \
+                self.port(subnet=subnet) as port:
+            itf = self._router_interface_action('add',
+                                                router['router']['id'],
+                                                subnet['subnet']['id'],
+                                                None)
+            itf_port = self.plugin.get_port(self.ctxt, itf['port_id'])
+
+            r = bagpipe.get_network_info_for_port(self.ctxt,
+                                                  port['port']['id'])
+
+            expected_ip = port['port']['fixed_ips'][0]['ip_address']+"/24"
+            self.assertEquals({
+                'mac_address': port['port']['mac_address'],
+                'ip_address': expected_ip,
+                'gateway_ip': subnet['subnet']['gateway_ip'],
+                'gateway_mac': itf_port['mac_address']
+            }, r)
 
 
 BGPVPN_INFO = {'mac_address': 'de:ad:00:00:be:ef',
                'ip_address': '10.0.0.2',
                'gateway_ip': '10.0.0.1',
+               'gateway_mac': None,
                'l3vpn': {'import_rt': ['12345:1'],
                          'export_rt': ['12345:1']
                          }
@@ -736,7 +760,6 @@ class TestOVSAgentExtension(ovs_test_base.OVSOFCtlTestBase):
     def setUp(self):
         super(TestOVSAgentExtension, self).setUp()
         self.agent_ext = bagpipe_agt_ext.BagpipeBgpvpnAgentExtension()
-        self.context = n_context.get_admin_context()
         self.connection = mock.Mock()
 
     @mock.patch('networking_bagpipe.agent.bagpipe_bgp_agent.BaGPipeBGPAgent')

@@ -13,7 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from sqlalchemy.orm import exc
+from sqlalchemy import orm
 from sqlalchemy import sql
 
 from neutron.callbacks import events
@@ -74,10 +74,27 @@ def get_network_info_for_port(context, port_id):
 
             (mac_address, ip_address, cidr, gateway_ip) = net_info
 
+            # Retrieve the gateway MAC, if any
+            Port2 = orm.aliased(models_v2.Port, name="Port2")
+            IPAllocation2 = orm.aliased(models_v2.IPAllocation,
+                                        name="IPAllocation2")
+            gateway_mac = (context.session.
+                query(models_v2.Port.mac_address).
+                join(l3_db.RouterPort).
+                join(models_v2.IPAllocation).  # Allocation for a router port
+                join(IPAllocation2,            # Allocation for port <port_id>
+                     IPAllocation2.subnet_id ==
+                     models_v2.IPAllocation.subnet_id).
+                join(Port2).
+                filter(Port2.id == port_id).
+                one_or_none()
+            )
+
             return {'mac_address': mac_address,
                     'ip_address': ip_address + cidr[cidr.index('/'):],
-                    'gateway_ip': gateway_ip}
-    except exc.NoResultFound:
+                    'gateway_ip': gateway_ip,
+                    'gateway_mac': gateway_mac[0] if gateway_mac else None}
+    except orm.exc.NoResultFound:
         return
 
 
@@ -86,7 +103,7 @@ def get_network_ports(context, network_id):
         return (context.session.query(models_v2.Port).
                 filter(models_v2.Port.network_id == network_id,
                        models_v2.Port.admin_state_up == sql.true()).all())
-    except exc.NoResultFound:
+    except orm.exc.NoResultFound:
         return
 
 
@@ -99,7 +116,7 @@ def get_router_ports(context, router_id):
                 models_v2.Port.device_owner == const.DEVICE_OWNER_ROUTER_INTF
             ).all()
         )
-    except exc.NoResultFound:
+    except orm.exc.NoResultFound:
         return
 
 
@@ -111,7 +128,7 @@ def get_router_bgpvpn_assocs(context, router_id):
                 bgpvpn_db.BGPVPNRouterAssociation.router_id == router_id
             ).all()
         )
-    except exc.NoResultFound:
+    except orm.exc.NoResultFound:
         return []
 
 
@@ -123,7 +140,7 @@ def get_network_bgpvpn_assocs(context, net_id):
                 bgpvpn_db.BGPVPNNetAssociation.network_id == net_id
             ).all()
         )
-    except exc.NoResultFound:
+    except orm.exc.NoResultFound:
         return
 
 
@@ -139,7 +156,7 @@ def get_bgpvpns_of_router_assocs_by_network(context, net_id):
                 models_v2.Port.network_id == net_id
             ).all()
         )
-    except exc.NoResultFound:
+    except orm.exc.NoResultFound:
         return
 
 
@@ -148,7 +165,7 @@ def network_is_external(context, net_id):
         context.session.query(external_net_db.ExternalNetwork).filter_by(
             network_id=net_id).one()
         return True
-    except exc.NoResultFound:
+    except orm.exc.NoResultFound:
         return False
 
 
@@ -252,6 +269,7 @@ class BaGPipeBGPVPNDriver(driver_api.BGPVPNDriver):
             'mac_address': '00:00:de:ad:be:ef',
             'ip_address': '10.0.0.2',
             'gateway_ip': '10.0.0.1',
+            'gateway_mac': 'aa:bb:cc:dd:ee:ff', # if a router interface exists
             'l3vpn' : {
                 'import_rt': ['12345:1', '12345:2', '12345:3'],
                 'export_rt': ['12345:1', '12345:2', '12345:4']
@@ -479,23 +497,46 @@ class BaGPipeBGPVPNDriver(driver_api.BGPVPNDriver):
                 self.delete_net_assoc_postcommit(context, net_assoc)
 
     def router_interface_added(self, context, port):
-        net_assocs = get_network_bgpvpn_assocs(context, port['network_id'])
+        net_id = port['network_id']
+        LOG.debug("router_interface_added on network %s", net_id)
+
+        net_assocs = get_network_bgpvpn_assocs(context, net_id)
         router_assocs = get_router_bgpvpn_assocs(context, port['device_id'])
         if net_assocs and router_assocs:
             msg = 'Can not add router interface because both router %(rtr)s ' \
                   'and network %(net)s have bgpvpn association(s)'
             LOG.error(msg % {'rtr': port['device_id'],
-                             'net': port['network_id']})
+                             'net': net_id})
             return
+
+        # if this router_interface is on a network bound to a BGPVPN,
+        # or if this router is bound to a BGPVPN,
+        # then we need to send and update for this network, including
+        # the gateway_mac
+        if net_assocs or router_assocs:
+            for port in get_network_ports(context, net_id):
+                LOG.debug("trigger notify_port_updated for port %s", port.id)
+                self.notify_port_updated(context, port.id, None)
+
         for router_assoc in router_assocs:
-            net_assoc = {'network_id': port['network_id'],
+            net_assoc = {'network_id': net_id,
                          'bgpvpn_id': router_assoc['bgpvpn_id']}
             self.create_net_assoc_postcommit(context, net_assoc)
 
     def router_interface_removed(self, context, port):
+        net_id = port['network_id']
+        LOG.debug("router_interface_removed on network %s", net_id)
+
+        net_assocs = get_network_bgpvpn_assocs(context, net_id)
+        router_assocs = get_router_bgpvpn_assocs(context, port['device_id'])
+        if net_assocs or router_assocs:
+            for port in get_network_ports(context, net_id):
+                LOG.debug("trigger notify_port_updated for port %s", port.id)
+                self.notify_port_updated(context, port.id, None)
+
         for router_assoc in get_router_bgpvpn_assocs(context,
                                                      port['device_id']):
-            net_assoc = {'network_id': port['network_id'],
+            net_assoc = {'network_id': net_id,
                          'bgpvpn_id': router_assoc['bgpvpn_id']}
             self.delete_net_assoc_postcommit(context, net_assoc)
 

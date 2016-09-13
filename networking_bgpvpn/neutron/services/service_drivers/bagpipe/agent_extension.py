@@ -118,7 +118,7 @@ class BagpipeBgpvpnAgentExtension(agent_extension.AgentCoreResourceExtension):
         self.bagpipe_bgp_agent = bagpipe_bgp_agent.BaGPipeBGPAgent(
             n_const.AGENT_TYPE_OVS,
             connection,
-            int_br=self.int_br,
+            int_br=OVSBridgeIntercept(self.int_br),
             tun_br=OVSBridgeIntercept(self.tun_br),
         )
 
